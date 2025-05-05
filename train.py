@@ -6,13 +6,13 @@ import torch
 train_datapath = "jomoll/GREEN-V3"
 eval_datapath = "jomoll/GREEN-V3"
 max_length = 512
-
+batch_size = 128
 model_name = "FacebookAI/roberta-base"
 
 model = transformers.RobertaForSequenceClassification.from_pretrained(model_name, num_labels=1)
 tokenizer = transformers.RobertaTokenizer.from_pretrained(model_name)
 
-def load_and_preprocess_dataset(data_path, tokenizer, max_len, split="train", system_message="", batch_size=16):
+def load_and_preprocess_dataset(data_path, tokenizer, max_len, split="train", system_message="", batch_size=batch_size):
     """Load and preprocess dataset in batches."""
     # Load hf dataset
     raw_data = datasets.load_dataset(data_path, split=split)
@@ -56,7 +56,9 @@ training_args = transformers.TrainingArguments(
     #eval_steps=500,  # Evaluate every 500 steps
     save_strategy="epoch",  # Save checkpoint after every epoch
     learning_rate=1e-4,  # You can experiment with 1e-4 or 2e-5
-    per_device_train_batch_size=128,
+    warmup_ratio=0.05,
+    lr_scheduler_type="cosine",
+    per_device_train_batch_size=batch_size,
     gradient_accumulation_steps=4, 
     num_train_epochs=1,
     weight_decay=0.01,
@@ -80,7 +82,10 @@ trainer = transformers.Trainer(
 trainer.train()
 
 # push to hub
-trainer.push_to_hub(commit_message="Training complete")
+trainer.push_to_hub(repo_path_or_name="jomoll/roberta-green-1", 
+                     commit_message="Initial commit", 
+                     blocking=True, 
+                     auto_lfs_prune=True)
 # Save the model and tokenizer
 trainer.save_model("./results")
 tokenizer.save_pretrained("./results")
