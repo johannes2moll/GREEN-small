@@ -34,39 +34,53 @@ def preprocess_batch(batch, tokenizer: transformers.PreTrainedTokenizer, max_len
     green_scores = batch.get("green_score", [])
 
     # Tokenize the input and target text
-    input_text = ["Reference report:\n"+reference_report+"\n Candidate report:\n"+candidate_report for reference_report, candidate_report in zip(originals, candidates)]
+    input_text = ["Reference report:\n"+reference_report+"\n Candidate report:\n"+candidate_report 
+                  for reference_report, candidate_report in zip(originals, candidates)]
 
-    inputs = tokenizer(input_text, padding="max_length", truncation=True, max_length=max_len, return_tensors="pt")
-    inputs["attention_mask"] = inputs["input_ids"].ne(tokenizer.pad_token_id)  # Add attention mask
-
-    targets = green_scores
-    inputs["labels"] = targets
+    # Use padding="longest" to only pad to the longest sequence in the batch for efficiency
+    inputs = tokenizer(input_text, padding="longest", truncation=True, max_length=max_len, return_tensors="pt")
+    
+    # Using the tokenizer's padding, no need to add the attention mask manually
+    inputs["labels"] = green_scores
 
     return inputs
 
+# Load and preprocess datasets
 train_dataset = load_and_preprocess_dataset(train_datapath, tokenizer, split="train", max_len=max_length)
 eval_dataset = load_and_preprocess_dataset(eval_datapath, tokenizer, split="validation", max_len=max_length)
 
-# train the model
+# Set training arguments
+training_args = transformers.TrainingArguments(
+    output_dir="./results",
+    evaluation_strategy="epoch",  # You can switch to "epoch" if preferred
+    #eval_steps=500,  # Evaluate every 500 steps
+    save_strategy="epoch",  # Save checkpoint after every epoch
+    learning_rate=1e-4,  # You can experiment with 1e-4 or 2e-5
+    per_device_train_batch_size=128,
+    gradient_accumulation_steps=4, 
+    num_train_epochs=1,
+    weight_decay=0.01,
+    report_to="wandb",  # Reporting to wandb, ensure you're logged in if using it
+    logging_dir="./logs",  # Log directory for tensorboard
+    logging_steps=500,  # Log every 500 steps
+    load_best_model_at_end=True,  # Automatically load the best model after training
+    metric_for_best_model="eval_loss",  # You can track eval_loss or another metric
+)
+
+# Trainer setup
 trainer = transformers.Trainer(
     model=model,
     tokenizer=tokenizer,
-    args=transformers.TrainingArguments(
-        output_dir="./results",
-        evaluation_strategy="steps",
-        eval_steps=500,
-        save_strategy="epoch",
-        learning_rate=1e-5,
-        per_device_train_batch_size=16,
-        num_train_epochs=3,
-        weight_decay=0.01,
-    ),
+    args=training_args,
     train_dataset=train_dataset,
     eval_dataset=eval_dataset,
 )
 
+# Start training
 trainer.train()
-# Save the model
+
+# push to hub
+trainer.push_to_hub(commit_message="Training complete")
+# Save the model and tokenizer
 trainer.save_model("./results")
-# Save the tokenizer
 tokenizer.save_pretrained("./results")
